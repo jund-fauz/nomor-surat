@@ -128,7 +128,7 @@ export function Footer() {
 				<div className='border-t border-primary-foreground/20 pt-8'>
 					<div className='flex flex-col md:flex-row justify-between items-center gap-4'>
 						<p className='text-sm text-primary-foreground/80'>
-							© 2024 NomorSurat. All rights reserved.
+							© {new Date().getFullYear()} NomorSurat. All rights reserved.
 						</p>
 						<div className='flex gap-6'>
 							<a

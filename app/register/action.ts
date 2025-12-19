@@ -8,7 +8,7 @@ export async function register(prevState: any, formData: FormData) {
         password: formData.get('password')?.toString() as string,
         options: {
             data: {
-                name: formData.get('name')
+                name: formData.get('name'),
             }
         }
 	})

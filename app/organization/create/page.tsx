@@ -1,13 +1,28 @@
 'use client'
 
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { supabase } from "@/lib/supabase"
-import { FileText, Check, Building2, FileType, Briefcase, Trash2, Plus, ChevronRight, Hash } from "lucide-react"
-import { redirect } from "next/navigation"
-import { useState } from "react"
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { supabase } from '@/lib/supabase'
+import {
+	FileText,
+	Check,
+	Building2,
+	FileType,
+	Briefcase,
+	Trash2,
+	Plus,
+	ChevronRight,
+	Hash,
+	X,
+	Upload,
+} from 'lucide-react'
+import { redirect } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { decode } from 'base64-arraybuffer'
+import { Spinner } from '@/components/ui/spinner'
 
 interface Position {
 	id: string
@@ -24,8 +39,12 @@ interface LetterType {
 export default function CreateOrganization() {
 	const [currentStep, setCurrentStep] = useState(1)
 	const totalSteps = 4
-
+	const [letterheadLogo, setLetterheadLogo] = useState<any>(null)
 	const [organizationName, setOrganizationName] = useState('')
+	const [address, setAddress] = useState('')
+	const [telephone, setTelephone] = useState('')
+	const [email, setEmail] = useState('')
+	const [website, setWebsite] = useState('')
 	const [letterFormat, setLetterFormat] = useState('')
 	const [positions, setPositions] = useState<Position[]>([
 		{ id: '1', name: '', code: '' },
@@ -33,6 +52,19 @@ export default function CreateOrganization() {
 	const [letterTypes, setLetterTypes] = useState<LetterType[]>([
 		{ id: '1', name: '', code: '' },
 	])
+	const [user, setUser] = useState<any>({})
+	const [loading, setLoading] = useState(false)
+
+	const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0]
+		if (file) {
+			const reader = new FileReader()
+			reader.onloadend = () => {
+				setLetterheadLogo({ base: reader.result as string, file })
+			}
+			reader.readAsDataURL(file)
+		}
+	}
 
 	const addPosition = () => {
 		setPositions([
@@ -85,7 +117,14 @@ export default function CreateOrganization() {
 	const isStepValid = () => {
 		switch (currentStep) {
 			case 1:
-				return organizationName.trim().length > 0
+				return (
+					organizationName.trim() !== '' &&
+					address.trim() !== '' &&
+					telephone.trim() !== '' &&
+					email.trim() !== '' &&
+					website.trim() !== '' &&
+					letterheadLogo
+				)
 			case 2:
 				return letterFormat.trim().length > 0
 			case 3:
@@ -101,30 +140,59 @@ export default function CreateOrganization() {
 		if (currentStep < totalSteps) {
 			setCurrentStep(currentStep + 1)
 		} else {
-			console.log('Setup completed:', {
-				organizationName,
-				letterFormat,
-				positions,
-				letterTypes,
+			setLoading(true)
+			let filename = ''
+			let storageError = null
+			if (letterheadLogo) {
+				filename = `${new Date().toISOString()}-${organizationName}.${
+					letterheadLogo.file.type.split('/')[1]
+				}`
+				const { data, error } = await supabase.storage
+					.from('letter')
+					.upload(`public/${filename}`, letterheadLogo.file, {
+						contentType: letterheadLogo.file.type,
+					})
+				storageError = error
+			}
+			const { error } = await supabase.from('organization').insert({
+				name: organizationName,
+				user_id: [user.id],
+				format: letterFormat,
+				letter_types: letterTypes.map((letterType) => letterType.name),
+				letter_types_short: letterTypes.map((letterType) => letterType.code),
+				positions: positions.map((letterType) => letterType.name),
+				positions_short: positions.map((letterType) => letterType.code),
+				address,
+				email,
+				telephone,
+				website,
+				logo: filename,
 			})
-            const { error } = await supabase.from('organization').insert({
-                name: organizationName,
-                user_id: [(await supabase.auth.getUser()).data.user?.id],
-                format: letterFormat,
-                letter_types: letterTypes.map(letterType => letterType.name),
-                letter_types_short: letterTypes.map(letterType => letterType.code),
-                positions: positions.map(letterType => letterType.name),
-                positions_short: positions.map(letterType => letterType.code),
-            })
-			if (!error) redirect('/dashboard?redirect_from=/organization/create')
+			setLoading(false)
+			if (!error && !storageError)
+				redirect('/dashboard?redirect_from=/organization/create')
 		}
 	}
 
 	const handleBack = () => {
-		if (currentStep > 1) {
-			setCurrentStep(currentStep - 1)
-		}
+		if (currentStep > 1) setCurrentStep(currentStep - 1)
 	}
+
+	useEffect(() => {
+		const fetchData = async () => {
+			const { data: userData, error: userError } = await supabase.auth.getUser()
+			if (userError || !userData?.user?.id) redirect('/login')
+			setUser(userData.user)
+			const { data } = await supabase
+				.from('organization')
+				.select('name')
+				.contains('user_id', [userData.user.id])
+				.single()
+			if (data) redirect('/dashboard')
+		}
+
+		fetchData()
+	}, [])
 
 	return (
 		<div className='min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-linear-to-b from-primary/5 to-background'>
@@ -194,12 +262,56 @@ export default function CreateOrganization() {
 								</div>
 								<h2 className='text-2xl mb-2'>Informasi Organisasi</h2>
 								<p className='text-muted-foreground'>
-									Masukkan nama organisasi atau perusahaan Anda
+									Masukkan informasi organisasi untuk kop surat resmi
 								</p>
 							</div>
 
 							<div className='space-y-2'>
-								<Label htmlFor='organizationName'>Nama Organisasi</Label>
+								<Label htmlFor='logo'>Logo Organisasi *</Label>
+								{!letterheadLogo ? (
+									<div className='flex items-center justify-center w-full'>
+										<label
+											htmlFor='logo'
+											className='flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-lg cursor-pointer bg-muted/30 hover:bg-muted/50 transition-colors'
+										>
+											<div className='flex flex-col items-center justify-center pt-5 pb-6'>
+												<Upload className='w-8 h-8 mb-2 text-muted-foreground' />
+												<p className='mb-2 text-sm text-muted-foreground'>
+													<span>Klik untuk upload logo</span>
+												</p>
+												<p className='text-xs text-muted-foreground'>
+													PNG, JPG atau SVG (Max. 2MB)
+												</p>
+											</div>
+											<Input
+												id='logo'
+												type='file'
+												accept='image/*'
+												className='hidden'
+												onChange={handleLogoUpload}
+											/>
+										</label>
+									</div>
+								) : (
+									<div className='relative w-full h-32 border-2 border-border rounded-lg overflow-hidden bg-muted/30'>
+										<img
+											src={letterheadLogo.base}
+											alt='Logo preview'
+											className='w-full h-full object-contain p-2'
+										/>
+										<button
+											type='button'
+											onClick={() => setLetterheadLogo(null)}
+											className='absolute top-2 right-2 p-1 text-destructive-foreground rounded-full hover:cursor-pointer transition-colors'
+										>
+											<X className='h-4 w-4' />
+										</button>
+									</div>
+								)}
+							</div>
+
+							<div className='space-y-2'>
+								<Label htmlFor='organizationName'>Nama Organisasi *</Label>
 								<Input
 									id='organizationName'
 									type='text'
@@ -208,8 +320,61 @@ export default function CreateOrganization() {
 									onChange={(e) => setOrganizationName(e.target.value)}
 									className='bg-input-background'
 								/>
+							</div>
+
+							<div className='space-y-2'>
+								<Label htmlFor='address'>Alamat Lengkap *</Label>
+								<Textarea
+									id='address'
+									placeholder='Contoh: Jl. Sudirman No. 123, Jakarta Pusat 10220'
+									value={address}
+									onChange={(e) => setAddress(e.target.value)}
+									className='bg-input-background min-h-20 resize-none'
+								/>
+							</div>
+
+							<div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+								<div className='space-y-2'>
+									<Label htmlFor='phone'>Nomor Telepon *</Label>
+									<Input
+										id='phone'
+										type='tel'
+										placeholder='Contoh: (021) 1234567'
+										value={telephone}
+										onChange={(e) => setTelephone(e.target.value)}
+										className='bg-input-background'
+									/>
+								</div>
+
+								<div className='space-y-2'>
+									<Label htmlFor='email'>Email *</Label>
+									<Input
+										id='email'
+										type='email'
+										placeholder='Contoh: info@perusahaan.com'
+										value={email}
+										onChange={(e) => setEmail(e.target.value)}
+										className='bg-input-background'
+									/>
+								</div>
+							</div>
+
+							<div className='space-y-2'>
+								<Label htmlFor='website'>Website *</Label>
+								<Input
+									id='website'
+									type='url'
+									placeholder='Contoh: www.perusahaan.com'
+									value={website}
+									onChange={(e) => setWebsite(e.target.value)}
+									className='bg-input-background'
+								/>
+							</div>
+
+							<div className='p-3 rounded-lg bg-primary/5 border border-primary/20'>
 								<p className='text-xs text-muted-foreground'>
-									Nama ini akan muncul di header surat resmi Anda
+									<strong>Info:</strong> Informasi ini akan digunakan sebagai
+									kop surat pada setiap dokumen resmi yang dibuat.
 								</p>
 							</div>
 						</div>
@@ -531,14 +696,20 @@ export default function CreateOrganization() {
 						<Button
 							type='button'
 							onClick={handleNext}
-							disabled={!isStepValid()}
+							disabled={!isStepValid() || loading}
 							className='group'
 						>
 							{currentStep === totalSteps ? (
-								<>
-									Selesai
-									<Check className='ml-2 h-4 w-4' />
-								</>
+								loading ? (
+									<>
+										<Spinner /> Loading...
+									</>
+								) : (
+									<>
+										Selesai
+										<Check className='ml-2 h-4 w-4' />
+									</>
+								)
 							) : (
 								<>
 									Next
@@ -548,7 +719,6 @@ export default function CreateOrganization() {
 						</Button>
 					</div>
 				</Card>
-
 			</div>
 		</div>
 	)
